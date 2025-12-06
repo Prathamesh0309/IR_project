@@ -2,7 +2,6 @@ import re
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
-import pandas as pd
 
 class DataCleaner:
     def __init__(self, text_column="Descriptor"):
@@ -22,13 +21,24 @@ class DataCleaner:
         self.lemmatizer = WordNetLemmatizer()
 
     def clean_text(self, text):
+        '''
+        Clean text by lowercasing, removing non-alphabetic characters,
+        removing stopwords, and lemmatizing.'''
         text = str(text).lower()
         text = re.sub(r"[^a-z\s]", "", text)
         tokens = [self.lemmatizer.lemmatize(word) for word in text.split() if word not in self.stop_words]
         return " ".join(tokens)
 
     def preprocess(self, df):
-        print("Cleaning text data...")
-        df["cleaned_text"] = df[self.text_column].apply(self.clean_text)
+        '''
+        Preprocess the text data in the specified text column of the dataframe.'''
+        df["full_text"] = (
+            df["Complaint Type"].fillna("") + " " +
+            df["Descriptor"].fillna("")
+        )
+
+        # Clean the combined full_text
+        df["cleaned_text"] = df["full_text"].apply(self.clean_text)
+
         print("Text cleaning complete.")
         return df

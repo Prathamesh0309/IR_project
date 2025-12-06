@@ -9,7 +9,7 @@ from wordcloud import WordCloud
 # ---------------------------
 # Replace 'path_to_file.csv' with your Kaggle cached dataset path
 
-df = pd.read_csv(r"/Users/prathamesh/IR_Project/data/raw_311_data.csv")
+df = pd.read_csv(r"data/raw_311_data.csv")
 
 # Inspect the columns
 print(df.columns)

@@ -1,34 +1,36 @@
 import os
 import pandas as pd
-import kagglehub
 
 class DataDownloader:
-    def __init__(self, dataset_name="new-york-city/ny-311-service-requests", data_dir="data"):
-        self.dataset_name = dataset_name
-        self.data_dir = data_dir
-        os.makedirs(data_dir, exist_ok=True)
+    '''
+    Class to handle loading of the dataset from a local CSV file.'''
 
-    def download_dataset(self):
-        print("Downloading or loading dataset from cache...")
-        path = kagglehub.dataset_download(self.dataset_name)
-        print(f"Dataset available at: {path}")
-        return path
+    def __init__(self, local_path="data/311-service-requests-from-2010-to-present.csv"):
+        self.local_path = local_path
 
     def load_dataframe(self):
-        dataset_path = self.download_dataset()
-        csv_file = None
-        for file in os.listdir(dataset_path):
-            if file.endswith(".csv"):
-                csv_file = os.path.join(dataset_path, file)
-                break
-        if not csv_file:
-            raise FileNotFoundError("No CSV file found in dataset folder!")
+        '''
+        Load the dataset from the local CSV file into a pandas DataFrame.
+        '''
+        # Check if the file exists
+        if not os.path.exists(self.local_path):
+            raise FileNotFoundError(
+                f"Could not find the dataset at {self.local_path}. "
+                f"Please place your manually downloaded CSV there."
+            )
+        # Load only relevant columns to save memory
+        cols = [
+        "Unique Key",
+        "Created Date",
+        "Complaint Type",
+        "Descriptor",
+        "Agency",
+        "Agency Name",
+        "Borough",
+        "Incident Zip"
+    ]
+        # Load the dataset
+        df = pd.read_csv(self.local_path, usecols=cols, low_memory=True)
+        print(f"Loaded dataset with {df.shape[0]} rows and {df.shape[1]} columns.")
 
-        df = pd.read_csv(csv_file)
-        print(f"Data loaded with shape: {df.shape}")
-
-        # Save a copy in your project folder
-        local_copy = os.path.join(self.data_dir, "raw_311_data.csv")
-        df.to_csv(local_copy, index=False)
-        print(f"Local copy saved at: {local_copy}")
         return df

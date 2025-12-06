@@ -6,15 +6,45 @@ from topic_model import TopicModel
 from exploratory_analysis import ExploratoryAnalysis
 from retrieval_system import IRSystem
 from recommendation import Recommender
-from evaluation import Evaluator
 import os
 import joblib
 import json
 from scipy import sparse
 
 
+def get_relevant_ids(df, keyword, top_k=20):
+    """
+    Automatically find relevant complaint IDs by searching for keywords
+    in cleaned_text column.
+    """
+    mask = df["cleaned_text"].str.contains(keyword, case=False, na=False)
+    return df.loc[mask, "unique_key"].head(top_k).tolist()
+
+def build_test_query_set(df):
+    """
+    Build evaluation test cases using real complaint IDs from df.
+    """
+    return [
+        {
+            "query": "loud noise at night",
+            "relevant_ids": get_relevant_ids(df, "noise")
+        },
+        {
+            "query": "illegal parking",
+            "relevant_ids": get_relevant_ids(df, "parking")
+        },
+        {
+            "query": "rats in basement",
+            "relevant_ids": get_relevant_ids(df, "rat")
+        }
+    ]
+
+
+
 def download_and_load():
-    downloader = DataDownloader()
+    '''
+    Download the dataset from Kaggle (if not already present) and load into a DataFrame.'''
+    downloader = DataDownloader(local_path="data/311-service-requests-from-2010-to-present.csv")
     return downloader.load_dataframe()
 
 
@@ -52,32 +82,34 @@ def clean_data(df, text_column="Descriptor"):
 
 
 def save_cleaned(df, path="data/cleaned_311_data.pkl"):
+    ''' Save cleaned dataframe to a pickle file.'''
     df.to_pickle(path)
 
 
-def prepare_features(df, max_features=5000):
+def prepare_features(df, max_features=50000):
+    ''' Prepare TF-IDF features from cleaned text data.'''
     fe = FeatureEngineer(max_features=max_features)
     tfidf_matrix = fe.fit_transform(df)
     return fe, tfidf_matrix
 
-
+# --- New functions for clustering, topic modeling, EDA, IR, and recommendation -- #
 def run_clustering(tfidf_matrix, df, n_clusters=5, visualize=False):
-    print("\nStep 5: Clustering")
-    print("----------------")
+    '''
+    Run KMeans clustering on the TF-IDF matrix and optionally visualize results.
+    '''
     clusterer = ClusterModel(n_clusters=n_clusters)
     if visualize:
         # Determine optimal cluster number before running final kmeans
         best_k = clusterer.find_optimal_clusters(tfidf_matrix, max_k=10, sample_size=50000)
         clusterer.n_clusters = best_k
-    
     labels = clusterer.kmeans(tfidf_matrix)
     df['cluster'] = labels
 
-    
+    # Visualizations
     if visualize:
         try:
             #silhouette analysis
-            # clusterer.silhouette_analysis(tfidf_matrix, k_min=2, k_max=10)
+            clusterer.silhouette_analysis(tfidf_matrix, k_min=2, k_max=10)
             # Word clouds
             clusterer.visualize_clusters_wordcloud(df, labels)
             # Top complaints bar chart
@@ -90,6 +122,9 @@ def run_clustering(tfidf_matrix, df, n_clusters=5, visualize=False):
 
 
 def run_topic_model(df, num_topics=5):
+    ''' Run LDA topic modeling on the cleaned text data.'''
+
+    # Prepare and train topic model
     tm = TopicModel(num_topics=num_topics)
     tm.prepare_corpus(df)
     tm.train_lda()
@@ -99,19 +134,34 @@ def run_topic_model(df, num_topics=5):
         pass
     return tm
 
-
 def exploratory_analysis(df):
+    ''' Perform exploratory data analysis on the dataframe.'''
     ea = ExploratoryAnalysis(df)
     ea.convert_dates(date_column="Created Date")
     return ea
 
 
-def run_ir_and_recommend(tfidf_matrix, df, fe, sample_query="loud noise at night", top_n=5):
-    ir = IRSystem(tfidf_matrix=tfidf_matrix, df=df)
+def run_ir_and_recommend(tfidf_matrix, df, fe, recommender, sample_query="loud noise at night", top_n=5):
+    ''' Run information retrieval system and get recommendations.'''
+
+    print("\nRunning Information Retrieval System...")
+    ir = IRSystem(tfidf_matrix, df)
     results = ir.query(sample_query, vectorizer=fe.vectorizer, top_n=top_n)
-    recommender = Recommender(df=df)
+    print("\nAttaching Recommendations...")
+    for idx, row in results.iterrows():
+        cluster_label = int(row["cluster"])
+        rec_text = recommender.recommend(cluster_label)
+        results.loc[idx, "recommendation"] = rec_text
+
+    print(results[["Descriptor", "cluster", "recommendation"]])
+
     return ir, recommender, results
 
+
+
+#-------------------------------------------------------------#
+# Full pipeline function
+#-------------------------------------------------------------#
 
 def run_pipeline(save_cleaned_file=True, cleaned_path="data/cleaned_311_data.pkl", max_features=5000, n_clusters=5, num_topics=5, visualize=False):
     """
@@ -119,10 +169,12 @@ def run_pipeline(save_cleaned_file=True, cleaned_path="data/cleaned_311_data.pkl
     """
     # Step 1: Download and load data
     df = download_and_load()
-
+    # Downsample dataset
+    df = df.sample(n=1000000, random_state=42).reset_index(drop=True)
+    
     # Step 2: Clean text
     df = clean_data(df)
-
+    print("--------------")
     # Step 3: Save cleaned data
     if save_cleaned_file:
         save_cleaned(df, path=cleaned_path)
@@ -150,6 +202,18 @@ def run_pipeline(save_cleaned_file=True, cleaned_path="data/cleaned_311_data.pkl
 
     # Step 5: Clustering
     clusterer, labels = run_clustering(tfidf_matrix, df, n_clusters=n_clusters, visualize=visualize)
+    df["cluster"] = labels
+
+    cluster_names = {
+    0: "Noise Issues",
+    1: "Parking Problems",
+    2: "Sanitation / Garbage Issues",
+    3: "Street / Traffic Conditions",
+    4: "Rodent / Pest Problems",
+}
+
+    recommender = Recommender(df, cluster_names=cluster_names)
+    print("Recommender initialized.")
 
     # Step 6: Topic modeling
     tm = run_topic_model(df, num_topics=num_topics)
@@ -158,13 +222,7 @@ def run_pipeline(save_cleaned_file=True, cleaned_path="data/cleaned_311_data.pkl
     ea = exploratory_analysis(df)
 
     # Week 5: IR Retrieval System (sample)
-    ir, recommender, results = run_ir_and_recommend(tfidf_matrix, df, fe)
-
-    # Week 7: Evaluation
-    try:
-        Evaluator.clustering_score(tfidf_matrix, labels)
-    except Exception:
-        pass
+    ir, recommender, results = run_ir_and_recommend(tfidf_matrix, df, fe,recommender)
 
     return {
         "df": df,

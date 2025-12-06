@@ -13,7 +13,9 @@ class ClusterModel:
         self.model = None
 
     def kmeans(self, tfidf_matrix):
-        # Default behavior: perform kmeans and optionally compute silhouette score
+        '''
+        Perform KMeans clustering on the TF-IDF matrix.
+        '''
         print(" Performing KMeans clustering...")
         try:
             nnz = getattr(tfidf_matrix, 'nnz', None)
@@ -37,6 +39,9 @@ class ClusterModel:
         return labels
 
     def hierarchical(self, tfidf_matrix):
+        '''
+        Perform Hierarchical clustering on the TF-IDF matrix.
+        '''
         print("🤖 Performing Hierarchical clustering...")
         self.model = AgglomerativeClustering(n_clusters=self.n_clusters)
         labels = self.model.fit_predict(tfidf_matrix.toarray())
@@ -44,6 +49,9 @@ class ClusterModel:
         return labels
 
     def visualize_clusters_wordcloud(self, df, labels, text_column="cleaned_text",max_words=100):
+        '''
+        Generate and display word clouds for each cluster.
+        '''
         df['cluster'] = labels
         n_clusters = len(set(labels))
     

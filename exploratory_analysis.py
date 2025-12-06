@@ -1,12 +1,14 @@
 import matplotlib.pyplot as plt
 import pandas as pd
-import numpy as np
 
 class ExploratoryAnalysis:
     def __init__(self, df):
         self.df = df.copy()
 
     def convert_dates(self, date_column="Created Date"):
+        '''
+        Convert the specified date column to datetime and extract year, month, day of week.
+        If date_column is None or not found, attempts to auto-detect a suitable date column'''
         # Auto-detect a sensible date column if not provided or missing
         if date_column is None or date_column not in self.df.columns:
             candidates = ['Created Date', 'created_date', 'CREATED DATE', 'Updated Date', 'UPDATED_DATE', 'Updated_Date', 'updated_date', 'BATCH_DATE', 'Updated Date']
@@ -34,6 +36,8 @@ class ExploratoryAnalysis:
         return self.df
 
     def plot_complaints_over_time(self, date_column="Created Date"):
+        '''
+        Plot the number of complaints over time (monthly).'''
         # Use provided date_column or the one selected during convert_dates
         date_col = date_column if date_column in self.df.columns else getattr(self, 'date_column', date_column)
         df_time = self.df.groupby(pd.Grouper(key=date_col, freq="M")).size()
@@ -45,6 +49,10 @@ class ExploratoryAnalysis:
         return fig
 
     def complaints_by_dayofweek(self):
+        '''
+        Plot the number of complaints by day of the week.'''
+
+        # Ensure DayOfWeek column exists
         df_days = self.df.groupby('DayOfWeek').size().reindex(
             ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
         )
@@ -58,7 +66,7 @@ class ExploratoryAnalysis:
         """Try to detect a sensible grouping column for citizen groups or service categories.
         Returns column name or None.
         """
-        candidates = ['Borough', 'BOROUGH', 'borough', 'SIMPLE_ID', 'SERVICE_NAME', 'BRIEF_DESCRIPTION', 'WEB_KEYWORDS']
+        candidates = ['Agency Name', 'Complaint Type', 'full_text', 'cluster']
         for c in candidates:
             if c in self.df.columns:
                 return c
@@ -69,6 +77,9 @@ class ExploratoryAnalysis:
         return None
 
     def top_groups(self, group_column=None, top_n=10):
+        '''
+        Return top N groups by count from the specified or detected group column.    
+        '''
         gc = group_column if group_column is not None else self.detect_group_column()
         if gc is None:
             raise KeyError('No suitable group column found')
@@ -97,9 +108,6 @@ class ExploratoryAnalysis:
                 return 'Summer'
             return 'Fall'
         df['Season'] = df['Month'].apply(month_to_season)
-        # assume categories correspond to a column chosen earlier (caller will prepare df_subset)
-        # Here categories is a dict-like {category_value: boolean mask}
-        # Simpler approach: expect caller to pass a list of values in self.group_column
         return df
 
     def plot_dashboard(self, date_column=None, group_column=None, top_n=6):
@@ -182,3 +190,51 @@ class ExploratoryAnalysis:
             if rc in df_sub.columns:
                 return df_sub[rc].value_counts().head(top_n)
         return pd.Series([], dtype=object)
+
+    def monthly_trend(self, date_column="Created Date"):
+        """
+        Cleanly computes monthly complaint counts from the given dataframe.
+        Always robust to partial date corruption.
+        """
+
+        if date_column not in self.df.columns:
+            raise KeyError(f"Date column '{date_column}' not found in dataframe.")
+
+        # Step 1 — Force string first to avoid mixed types
+        temp = self.df[date_column].astype(str)
+
+        # Step 2 — Safely parse dates
+        parsed = pd.to_datetime(temp, errors="coerce")
+
+        # Step 3 — Drop invalid dates
+        df_valid = self.df.copy()
+        df_valid["parsed_date"] = parsed
+        df_valid = df_valid.dropna(subset=["parsed_date"])
+
+        # Step 4 — Extract year-month as period
+        df_valid["year_month"] = df_valid["parsed_date"].dt.to_period("M")
+
+        # Step 5 — Count
+        monthly_counts = (
+            df_valid["year_month"]
+            .value_counts()
+            .sort_index()
+        )
+
+        return monthly_counts
+
+    def plot_monthly_trend(self, date_column="Created Date"):
+        '''
+        Plot monthly complaint trend from the given dataframe.
+        '''
+        monthly_counts = self.monthly_trend(date_column)
+
+        plt.figure(figsize=(12,5))
+        monthly_counts.plot(kind="line", marker="o")
+        plt.title("Monthly Complaint Volume")
+        plt.xlabel("Month")
+        plt.ylabel("Number of Complaints")
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
